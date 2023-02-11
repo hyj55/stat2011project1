@@ -1,0 +1,158 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+
+ozone hole area
+
+```{r,`results = FALSE`}
+library(XML)
+library(httr)
+library(RCurl)
+library(htm2txt)
+library(rvest)
+```
+
+#data collection
+```{r}
+data_combined=matrix(NA,ncol=9,nrow=1)
+for (i in 1979:2023){
+  file=paste0("https://ozonewatch.gsfc.nasa.gov/meteorology/figures/ozone/to3areas_",i,"_toms+omi+omps.txt")
+  data0=gettxt(file)
+  data_split=strsplit(data0, " +")[[1]]
+  data_raw=data_split[16:length(data_split)]
+  data_raw=matrix(data_raw,ncol=9,byrow = TRUE)
+  data_combined=rbind(data_combined,data_raw[2:length(data_raw[,1]),])
+}
+
+```
+
+```{r}
+#https://ozonewatch.gsfc.nasa.gov/meteorology/figures/ozone/to3mins_1979_toms+omi+omps.txt
+#https://ozonewatch.gsfc.nasa.gov/meteorology/figures/ozone/to3areas_1979_toms+omi+omps.txt
+file=paste0("https://ozonewatch.gsfc.nasa.gov/meteorology/figures/ozone/to3areas_",1980,"_toms+omi+omps.txt")
+data0=gettxt(file)
+data_split=strsplit(data0, " +")[[1]]
+data_raw=data_split[16:length(data_split)]
+data_raw=matrix(data_raw,ncol=9,byrow = TRUE)
+
+data_f=data.frame(data_combined[2:length(data_combined[,1]),])
+names(data_f)=data_raw[1,]
+```
+
+# plot the raw data (whole dataset)
+```{r}
+data_mean=as.numeric(data_f$Data)
+data_mean[data_mean==-9999]=0
+plot(data_mean,type="l")
+```
+# raw data (first 6 yrs)
+```{r}
+plot(data_mean[1:365*6],type="l")
+```
+#year average
+```{r}
+yr_mean=rep(NA,2023-1978)
+for(i in 1:2023-1978){
+  yr=i+1978
+  yr_data=data_f[as.numeric(substr(data_f$Date,1,4))==yr,]
+  yr_data_uv=as.numeric(yr_data$Data)
+  yr_data_uv[yr_data_uv==-9999]=0
+  yr_mean[i]=mean(yr_data_uv[!is.na(yr_data_uv)])
+}
+plot(yr_mean,type="l")
+```
+# average size from Sep7th to Oct13th
+```{r}
+yr_mean=rep(NA,2023-1978)
+for(i in 1:(2023-1978)){
+  yr=i+1978
+  from=which(data_f==paste0(yr,"-09-07"))
+  to=which(data_f==paste0(yr,"-10-13"))
+  
+  data_yr_9_10=data_f[from:to,]
+  #print(data_yr_9_10[1,])
+  yr_data=as.numeric(data_yr_9_10$Data)
+  yr_data[yr_data==-9999]=0
+  yr_mean[i]=max(yr_data[!is.na(yr_data)])
+}
+plot(yr_mean,type="l")
+```
+# separate trend, seasonal effect, noise
+```{r}
+d=365
+x=data_mean
+# Step 1: Estimate the trend
+n=length(x)
+# make empty vector to store trend
+T1=rep(NA,n)
+filter=rep(1/d,d)
+# compute filtered values recursively
+radius=(d-1)/2; start=1+radius; end=n-radius
+for ( k in start:end) {
+	T1[k]=filter%*%x[(k-radius):(k+radius)]
+}
+ts.plot(T1,ylab="Trend")
+```
+
+```{r}
+# Step 2: Estimate seasonal effect
+d=365;
+D=x-T1;
+# na.rm=T means remove NA entries
+D.bar=mean(D,na.rm=T)
+# data of same season put in same col.
+S.mat=matrix(D-D.bar,ncol=d,byrow=T)
+# compute column(2) mean
+S=apply(S.mat,2,mean,na.rm=T)
+# make S the same length as x
+S=rep(S,n/d)
+ts.plot(S,ylab="Seasonality")
+```
+
+```{r}
+# Step 3: Re-estimate the trend from deseasonalized data
+Q=x-S
+l=364/2
+# make empty vector to store new trend
+newT=rep(NA,n)
+filter=rep(1/(l*2+1),(l*2+1))
+# compute new filtered values recursively
+radius=l; start=l+1; end=n-l
+for ( k in start:end) {
+	newT[k]=filter%*%Q[(k-radius):(k+radius)]
+}
+ts.plot(newT,ylab="Re-estimated Trend")
+```
+```{r}
+# noise
+N=x-newT-S
+ts.plot(N,ylab="Noise")
+```
+
+
+```{r}
+# Step 4: Putting Four Graphs Together
+par(mfrow=c(2,2)) # make 2×2 plots
+ts.plot(x)
+ts.plot(S,ylab= "Seasonality")
+ts.plot(newT,ylab="Re-estimated Trend")
+ts.plot(N,ylab="Noise")
+```
+```{r}
+# test noise
+N_dropna=N[!is.na(N)]
+acf_N=acf(N_dropna,lag.max = 7000)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
